@@ -1,0 +1,133 @@
+================================================================================
+PRACTICAL 4: Deploy an application using Ocelot API
+================================================================================
+
+AIM:
+To deploy an ASP.NET Core MVC application behind an Ocelot API Gateway and demonstrate request routing.
+
+THEORY:
+Ocelot is an open-source, lightweight, and scalable .NET Core-based API Gateway. It provides a single, unified entry point for clients to access multiple downstream services. In this practical, an ASP.NET Core MVC application acts as the downstream microservice, and the Ocelot project acts as the gateway forwarding client requests to the MVC application.
+
+WORKING STEPS:
+
+1. Create MVC App:
+Create an ASP.NET Core Web App (MVC) named pracMVC. Add a model StockQuote.cs:
+
+namespace pracMVC.Models
+{
+    public class StockQuote
+    {
+        public string? Symbol { get; set; }
+        public int Price { get; set; }
+    }
+}
+
+2. Update Controller:
+In HomeController.cs:
+
+public IActionResult Index()
+{
+    var model = new StockQuote { Symbol = "Nike", Price = 3200 };
+    return View(model);
+}
+
+3. Update View:
+In Views/Home/Index.cshtml:
+
+@model pracMVC.Models.StockQuote
+@{
+    ViewData["Title"] = "Home Page";
+}
+<div class="text-center">
+    <h1 class="display-4">Welcome to MVC App</h1>
+    <h2>Stock Quote</h2>
+    <p>Symbol: @Model.Symbol</p>
+    <p>Price: @Model.Price</p>
+</div>
+
+4. CRUCIAL FIX:
+Open pracMVC/Program.cs. Comment out app.UseHttpsRedirection();.
+
+// app.UseHttpsRedirection();
+
+5. Set MVC Port:
+Open pracMVC/Properties/launchSettings.json. Ensure the HTTP profile uses port 5083.
+
+"applicationUrl": "http://localhost:5083"
+
+6. Create Ocelot Project:
+Right-click Solution -> Add -> New Project -> ASP.NET Core Empty. Name it ocelotAPI. Install the Ocelot NuGet package.
+
+7. Configure Ocelot JSON:
+Add a new item ocelot.json to the ocelotAPI project.
+
+{
+  "Routes": [
+    {
+      "DownstreamPathTemplate": "/Home/Index",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5083
+        }
+      ],
+      "UpstreamPathTemplate": "/gateway/home",
+      "UpstreamHttpMethod": [ "GET" ]
+    }
+  ],
+  "GlobalConfiguration": {
+    "BaseUrl": "http://localhost:5252"
+  }
+}
+
+Important: Right-click ocelot.json -> Properties -> Set "Copy to Output Directory" to "Copy if newer".
+
+8. Configure Ocelot Program.cs:
+
+using Ocelot.DependencyInjection;
+using Ocelot.Middleware;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration.AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
+
+builder.Services.AddOcelot();
+
+var app = builder.Build();
+
+await app.UseOcelot();
+
+app.Run();
+
+9. Set Gateway Port:
+Open ocelotAPI/Properties/launchSettings.json. Ensure the HTTP profile uses port 5252 and sets the launch URL to the gateway path.
+
+"applicationUrl": "http://localhost:5252",
+"launchUrl": "gateway/home"
+
+10. Multiple Startup Projects:
+Right-click Solution -> Configure Startup Projects -> Select Multiple startup projects -> Set both pracMVC and ocelotAPI to Start.
+
+11. Run:
+Press F5. Both terminals will open. Wait for them to say "Now listening on...". Navigate to http://localhost:5252/gateway/home.
+
+COMMON PROBLEMS & SOLUTIONS:
+
+Problem 1: "502 Bad Gateway" or "Connection Refused".
+- Solution: Ocelot cannot reach your MVC app. Check if pracMVC is actually running. Check the port number in ocelot.json ("Port": 5083). It MUST match the port in pracMVC/Properties/launchSettings.json.
+
+Problem 2: Ocelot starts but crashes immediately with "ocelot.json not found".
+- Solution: You forgot to set the file properties. Right-click ocelot.json in Solution Explorer -> Properties -> Set Copy to Output Directory to Copy if newer or Copy always.
+
+Problem 3: "307 Temporary Redirect" or "HTTPS error".
+- Solution: Open pracMVC/Program.cs and ensure app.UseHttpsRedirection(); is commented out. Ocelot works over HTTP internally.
+
+Problem 4: Visual Studio only opens one project (either MVC or Ocelot) instead of both.
+- Solution: You need to set up Multiple Startup Projects. Right-click the Solution -> Configure Startup Projects... -> Select Multiple startup projects -> Change the Action for both pracMVC and ocelotAPI to Start.
+
+Problem 5: 404 Not Found on Gateway URL.
+- Solution: Check your exact URL. The browser must match the UpstreamPathTemplate in ocelot.json exactly. If the file says /gateway/home, you must type http://localhost:5252/gateway/home.
+
+OUTPUT:
+The browser at http://localhost:5252/gateway/home displays the MVC page ("Symbol: Nike", "Price: 3200") showing that Ocelot successfully routed the request to the downstream MVC app on port 5083.
